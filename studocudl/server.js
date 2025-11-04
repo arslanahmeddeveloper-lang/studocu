@@ -424,7 +424,7 @@ const studocuDownloader = async (url, options = {}, progressTracker = null) => {
         await new Promise(resolve => setTimeout(resolve, 2000)); // Reduced from 5000ms
 
         // Apply content unblurring
-        await unblurContent(page, progressTracker);
+        // await unblurContent(page, progressTracker);
 
         // Wait for document content
         progressTracker?.updateProgress(45, 'loading', 'Waiting for document content...');
