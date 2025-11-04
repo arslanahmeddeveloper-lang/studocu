@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StuDocu Downloader</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: #f0f2f5;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .container {
+            background-color: #ffffff;
+            padding: 30px 40px;
+            border-radius: 12px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+            width: 100%;
+            max-width: 650px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .header .logo {
+            width: 40px;
+            height: 40px;
+            color: #007bff;
+            margin-bottom: 10px;
+        }
+
+        .header h1 {
+            color: #2c3e50;
+            margin: 0 0 10px;
+            font-weight: 600;
+        }
+
+        .header p {
+            color: #7f8c8d;
+            margin-bottom: 30px;
+            font-size: 1rem;
+        }
+
+        .form-container {
+            display: flex;
+            margin-bottom: 20px;
+        }
+
+        #studocu-url {
+            flex-grow: 1;
+            padding: 14px 18px;
+            border: 1px solid #dfe4ea;
+            border-radius: 8px 0 0 8px;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        #studocu-url:focus {
+            border-color: #007bff;
+            box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.15);
+        }
+
+        #download-btn {
+            padding: 14px 25px;
+            border: none;
+            background-color: #007bff;
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 0 8px 8px 0;
+            cursor: pointer;
+            outline: none;
+            position: relative;
+            transition: background-color 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 120px;
+        }
+
+        #download-btn:hover {
+            background-color: #0056b3;
+        }
+
+        #download-btn:disabled {
+            background-color: #5a9eeb;
+            cursor: not-allowed;
+        }
+
+        .btn-loader {
+            display: none;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #0056b3;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+
+        #download-btn.loading .btn-text {
+            display: none;
+        }
+
+        #download-btn.loading .btn-loader {
+            display: block;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .progress-section {
+            margin-top: 25px;
+            text-align: left;
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            background-color: #e9ecef;
+            border-radius: 8px;
+            overflow: hidden;
+            height: 12px;
+        }
+
+        .progress-bar {
+            width: 0%;
+            height: 100%;
+            background-color: #007bff;
+            border-radius: 8px;
+            transition: width 0.4s ease-in-out;
+        }
+
+        #status-text {
+            margin-top: 8px;
+            color: #495057;
+            font-size: 0.9rem;
+            text-align: center;
+        }
+
+        .status-indicator.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 20px;
+            font-size: 0.95rem;
+        }
+
+        /* --- NEW LOG CONTAINER STYLES --- */
+        .log-section {
+            margin-top: 25px;
+            text-align: left;
+            border: 1px solid #dfe4ea;
+            border-radius: 8px;
+            padding: 15px;
+            background-color: #fafafa;
+        }
+
+        .log-section h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: #2c3e50;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .log-container {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.85rem;
+            height: 150px;
+            overflow-y: auto;
+            padding: 10px;
+            border-radius: 6px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .log-entry {
+            display: flex;
+            margin-bottom: 5px;
+        }
+
+        .log-entry .timestamp {
+            color: #95a5a6;
+            margin-right: 10px;
+            flex-shrink: 0;
+        }
+
+        .log-entry .message {
+            flex-grow: 1;
+        }
+
+        .log-entry.error .message {
+            color: #e74c3c;
+            /* Red */
+        }
+
+        .log-entry.success .message {
+            color: #2ecc71;
+            /* Green */
+        }
+
+        /* --- END OF NEW STYLES --- */
+
+        .footer {
+            margin-top: 30px;
+            font-size: 0.8rem;
+            color: #95a5a6;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <svg class="logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path
+                    d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 14h-2v-2h2v2zm0-4h-2V7h2v5z" />
+            </svg>
+            <h1>StuDocu Document Downloader</h1>
+            <p>Paste a valid StuDocu document URL to generate and download a PDF.</p>
+        </div>
+        <div class="main-content">
+            <div class="form-container">
+                <input type="text" id="studocu-url" placeholder="https://www.studocu.com/en-us/document/...">
+                <button id="download-btn">
+                    <span class="btn-text">Download</span>
+                    <span class="btn-loader"></span>
+                </button>
+            </div>
+
+            <div class="progress-section" id="progress-section" style="display: none;">
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progress-bar"></div>
+                </div>
+                <p id="status-text">Starting...</p>
+            </div>
+
+            <!-- NEW: Log Display Area -->
+            <div class="log-section" id="log-section" style="display: none;">
+                <h3>Live Logs</h3>
+                <div class="log-container" id="log-container"></div>
+            </div>
+
+            <div class="status-indicator error" id="error-indicator" style="display: none;"></div>
+        </div>
+        <div class="footer">
+            <p>Powered by the Heart by Us</p>
+        </div>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const downloadBtn = document.getElementById('download-btn');
+            const urlInput = document.getElementById('studocu-url');
+            const progressSection = document.getElementById('progress-section');
+            const progressBar = document.getElementById('progress-bar');
+            const statusText = document.getElementById('status-text');
+            const errorIndicator = document.getElementById('error-indicator');
+            // NEW: Get log elements
+            const logSection = document.getElementById('log-section');
+            const logContainer = document.getElementById('log-container');
+
+            const API_BASE_URL = 'http://localhost:7860';
+            let pollInterval;
+            let lastLoggedMessage = ''; // NEW: Track last message to avoid duplicates
+
+            const resetUI = () => {
+                setLoading(false);
+                progressSection.style.display = 'none';
+                errorIndicator.style.display = 'none';
+                progressBar.style.width = '0%';
+                statusText.textContent = '';
+                // NEW: Reset log area
+                logSection.style.display = 'none';
+                logContainer.innerHTML = '';
+                lastLoggedMessage = '';
+            };
+
+            // NEW: Function to add a message to the log container
+            const addLog = (message, type = 'info') => {
+                if (!message || message === lastLoggedMessage) return; // Avoid empty or duplicate logs
+                lastLoggedMessage = message;
+
+                const logEntry = document.createElement('div');
+                logEntry.className = `log-entry ${type}`;
+                const timestamp = new Date().toLocaleTimeString();
+                logEntry.innerHTML = `<span class="timestamp">${timestamp}</span><span class="message">${message}</span>`;
+
+                logContainer.appendChild(logEntry);
+                logContainer.scrollTop = logContainer.scrollHeight; // Auto-scroll
+            };
+
+            const pollProgress = (sessionId) => {
+                pollInterval = setInterval(async () => {
+                    try {
+                        const response = await fetch(`${API_BASE_URL}/api/progress/${sessionId}`);
+                        if (!response.ok) throw new Error('Failed to get progress update.');
+
+                        const data = await response.json();
+
+                        progressBar.style.width = `${data.progress}%`;
+                        statusText.textContent = `(${data.progress}%) ${data.message}`;
+                        addLog(`[${data.status}] ${data.message}`); // Add to log
+
+                        if (data.progress >= 100) {
+                            clearInterval(pollInterval);
+                            statusText.textContent = '✅ Success! Your download will start now.';
+                            addLog('✅ PDF generated successfully! Starting download...', 'success');
+                            window.location.href = `${API_BASE_URL}/api/download/${sessionId}`;
+                            setTimeout(resetUI, 5000);
+                        }
+
+                        if (data.progress < 0) {
+                            clearInterval(pollInterval);
+                            showError(`Error: ${data.message || 'An unknown error occurred.'}`);
+                            setLoading(false);
+                        }
+
+                    } catch (error) {
+                        clearInterval(pollInterval);
+                        console.error('Polling failed:', error);
+                        showError('Failed to connect to the server for progress updates.');
+                        setLoading(false);
+                    }
+                }, 2000);
+            };
+
+            downloadBtn.addEventListener('click', async () => {
+                const url = urlInput.value.trim();
+                if (!url || !url.includes('studocu.com')) {
+                    showError('Please provide a valid StuDocu URL.');
+                    return;
+                }
+
+                resetUI();
+                setLoading(true);
+                progressSection.style.display = 'block';
+                logSection.style.display = 'block'; // Show logs
+                statusText.textContent = 'Requesting download...';
+                addLog('🚀 Requesting download...');
+
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/request-download`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url }),
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || 'Failed to start the download process.');
+                    }
+
+                    const { sessionId } = await response.json();
+                    pollProgress(sessionId);
+
+                } catch (error) {
+                    console.error('Download failed:', error);
+                    showError(error.message);
+                    setLoading(false);
+                }
+            });
+
+            function setLoading(isLoading) {
+                downloadBtn.disabled = isLoading;
+                urlInput.disabled = isLoading;
+                downloadBtn.classList.toggle('loading', isLoading);
+            }
+
+            function showError(message) {
+                errorIndicator.style.display = 'block';
+                errorIndicator.textContent = message;
+                progressSection.style.display = 'none';
+                logSection.style.display = 'block'; // Ensure logs are visible on error
+                addLog(message, 'error');
+            }
+        });
+    </script>
+</body>
+
+</html>

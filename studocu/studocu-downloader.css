@@ -1,0 +1,146 @@
+/* Styles for StuDocu Downloader Plugin */
+.studocu-container {
+    font-family: 'Poppins', sans-serif;
+    background-color: #ffffff;
+    padding: 30px 40px;
+    border-radius: 12px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+    width: 100%;
+    max-width: 650px;
+    text-align: center;
+    transition: all 0.3s ease;
+    margin: 2em auto;
+    /* Center the container */
+}
+
+.studocu-container .header .logo {
+    width: 40px;
+    height: 40px;
+    color: #007bff;
+    margin-bottom: 10px;
+}
+
+.studocu-container .header div {
+    color: #2c3e50;
+    margin: 0 0 10px;
+    font-weight: 600;
+}
+
+.studocu-container .header p {
+    color: #7f8c8d;
+    margin-bottom: 30px;
+    font-size: 1rem;
+}
+
+.studocu-container .form-container {
+    display: flex;
+    margin-bottom: 20px;
+}
+
+.studocu-container #studocu-url {
+    flex-grow: 1;
+    padding: 14px 18px;
+    border: 1px solid #dfe4ea;
+    border-radius: 8px 0 0 8px;
+    font-size: 16px;
+    outline: none;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.studocu-container #studocu-url:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.15);
+}
+
+.studocu-container #download-btn {
+    padding: 14px 25px;
+    border: none;
+    background-color: #007bff;
+    color: white;
+    font-size: 16px;
+    font-weight: 600;
+    border-radius: 0 8px 8px 0;
+    cursor: pointer;
+    outline: none;
+    position: relative;
+    transition: background-color 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 120px;
+}
+
+.studocu-container #download-btn:hover {
+    background-color: #0056b3;
+}
+
+.studocu-container #download-btn:disabled {
+    background-color: #5a9eeb;
+    cursor: not-allowed;
+}
+
+.studocu-container .btn-loader {
+    display: none;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #0056b3;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    animation: spin 1s linear infinite;
+}
+
+.studocu-container #download-btn.loading .btn-text {
+    display: none;
+}
+
+.studocu-container #download-btn.loading .btn-loader {
+    display: block;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.studocu-container .progress-section {
+    margin-top: 25px;
+    text-align: left;
+}
+
+.studocu-container .progress-bar-container {
+    width: 100%;
+    background-color: #e9ecef;
+    border-radius: 8px;
+    overflow: hidden;
+    height: 12px;
+}
+
+.studocu-container .progress-bar {
+    width: 0%;
+    height: 100%;
+    background-color: #007bff;
+    border-radius: 8px;
+    transition: width 0.4s ease-in-out;
+}
+
+.studocu-container #status-text {
+    margin-top: 8px;
+    color: #495057;
+    font-size: 0.9rem;
+    text-align: center;
+}
+
+.studocu-container .status-indicator.error {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+    padding: 12px;
+    border-radius: 8px;
+    margin-top: 20px;
+    font-size: 0.95rem;
+}
