@@ -3,10 +3,10 @@
  * Plugin Name:       StuDocu Downloader Plugin
  * Plugin URI:        https://example.com/
  * Description:       A secure shortcode to display the StuDocu document downloader tool.
- * Version:           1.1.0
+ * Version:           3.0.0
  * Requires at least: 5.2
  * Requires PHP:      7.2
- * Author:            Mudassir Asghar (Updated for Security)
+ * Author:            Mudassir Asghar
  * Author URI:        https://author.example.com/
  * License:           GPL v2 or later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
@@ -14,89 +14,106 @@
  * Domain Path:       /languages
  */
 
-// Security First: Prevent direct access to this file
 if (!defined('ABSPATH')) {
-    exit; // Exit if accessed directly.
+    exit;
 }
 
-/**
- * Enqueues the necessary CSS and JavaScript files for the downloader.
- *
- * This is the correct and secure way to add assets in WordPress.
- */
 function studocu_downloader_assets()
 {
-    // Only load the scripts and styles on pages where the shortcode is present.
-    // This is a performance optimization.
     if (is_singular() && has_shortcode(get_post()->post_content, 'studocu_display')) {
 
-        // Enqueue the stylesheet
         wp_enqueue_style(
-            'studocu-downloader-style', // A unique handle for the stylesheet
-            plugin_dir_url(__FILE__) . 'studocu-downloader.css', // Path to the CSS file
-            [], // No dependencies
-            '1.1.0' // Version number
+            'studocu-google-fonts',
+            'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&display=swap',
+            [],
+            null
         );
 
-        // Enqueue the JavaScript file
+        wp_enqueue_style(
+            'studocu-downloader-style',
+            plugin_dir_url(__FILE__) . 'studocu-downloader.css',
+            ['studocu-google-fonts'],
+            '3.0.0'
+        );
+
         wp_enqueue_script(
-            'studocu-downloader-script', // A unique handle for the script
-            plugin_dir_url(__FILE__) . 'studocu-downloader.js', // Path to the JS file
-            [], // No dependencies
-            '1.1.0', // Version number
-            true // Load the script in the footer for better performance
+            'studocu-downloader-script',
+            plugin_dir_url(__FILE__) . 'studocu-downloader.js',
+            [],
+            '3.0.0',
+            true
         );
     }
 }
-// Hook the function into the right action
 add_action('wp_enqueue_scripts', 'studocu_downloader_assets');
 
-
-/**
- * Renders the HTML for the StuDocu downloader.
- *
- * This function no longer reads from a file, preventing file-based XSS attacks.
- * It returns a string of safe, known HTML.
- *
- * @return string The HTML content for the downloader.
- */
 function studocu_display_shortcode()
 {
-    // Use output buffering to capture the HTML
     ob_start();
     ?>
     <div class="studocu-container">
         <div class="header">
-            <svg class="logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                <path
-                    d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 14h-2v-2h2v2zm0-4h-2V7h2v5z" />
-            </svg>
-            <div>StuDocu Document Downloader</div>
-            <p>Paste a valid StuDocu document URL to generate and download a PDF.</p>
+            <h1>Paste Your StuDocu Link Below</h1>
         </div>
         <div class="main-content">
             <div class="form-container">
-                <input type="text" id="studocu-url" placeholder="https://www.studocu.com/en-us/document/...">
+                <div class="input-wrapper">
+                    <input type="text" id="studocu-url" placeholder="https://www.studocu.com/en-us/document/..."
+                        autocomplete="off" spellcheck="false">
+                    <button id="clear-btn" title="Clear" tabindex="-1">&times;</button>
+                </div>
                 <button id="download-btn">
-                    <span class="btn-text">Download</span>
+                    <svg class="btn-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    <span class="btn-text">Download Free</span>
                     <span class="btn-loader"></span>
                 </button>
             </div>
 
             <div class="progress-section" id="progress-section" style="display: none;">
-                <div class="progress-bar-container">
+                <div class="progress-track">
                     <div class="progress-bar" id="progress-bar"></div>
                 </div>
-                <p id="status-text">Starting...</p>
+                <p id="status-text">Initializing...</p>
             </div>
 
             <div class="status-indicator error" id="error-indicator" style="display: none;"></div>
+
+            <div class="trust-badges">
+                <div class="badge">
+                    <span class="badge-check">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                    </span>
+                    No registration
+                </div>
+
+                <div class="badge">
+                    <span class="badge-check">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                    </span>
+                    Unlimited downloads
+                </div>
+                <div class="badge">
+                    <span class="badge-check">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                    </span>
+                    All devices supported
+                </div>
+            </div>
         </div>
     </div>
     <?php
-    // Return the buffered content
     return ob_get_clean();
 }
 
-// Register the shortcode [studocu_display]
 add_shortcode('studocu_display', 'studocu_display_shortcode');

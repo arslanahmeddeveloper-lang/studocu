@@ -1,19 +1,28 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // Check if the downloader container exists on the page to run the script
     const container = document.querySelector('.studocu-container');
-    if (!container) {
-        return; // Exit if the downloader HTML is not on the current page
-    }
+    if (!container) return;
 
     const downloadBtn = document.getElementById('download-btn');
     const urlInput = document.getElementById('studocu-url');
+    const clearBtn = document.getElementById('clear-btn');
     const progressSection = document.getElementById('progress-section');
     const progressBar = document.getElementById('progress-bar');
     const statusText = document.getElementById('status-text');
     const errorIndicator = document.getElementById('error-indicator');
 
-    // const API_BASE_URL = 'http://localhost:7860';
-    const API_BASE_URL = 'https://devusman-test.hf.space';
+    // ⚠️ CHANGE THIS to your VPS domain where the backend (server.js) is running
+    const API_BASE_URL = 'https://studcodl.mudassirasghar.com';
+
+    // Clear button logic
+    urlInput.addEventListener('input', () => {
+        clearBtn.classList.toggle('visible', urlInput.value.length > 0);
+    });
+    clearBtn.addEventListener('click', () => {
+        urlInput.value = '';
+        clearBtn.classList.remove('visible');
+        errorIndicator.style.display = 'none';
+        urlInput.focus();
+    });
 
     let pollInterval;
 
@@ -23,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
         errorIndicator.style.display = 'none';
         progressBar.style.width = '0%';
         statusText.textContent = '';
+        statusText.classList.remove('success');
         urlInput.disabled = false;
     };
 
@@ -39,24 +49,38 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 const data = await response.json();
-
                 progressBar.style.width = `${data.progress}%`;
-                statusText.textContent = `(${data.progress}%) ${data.message}`;
+                statusText.textContent = `${data.progress}% — ${data.message}`;
 
                 if (data.status === 'completed') {
                     clearInterval(pollInterval);
-                    statusText.textContent = '✅ Success! Your download will start now.';
-                    window.location.href = `${API_BASE_URL}/api/download/${sessionId}`;
-                    setTimeout(resetUI, 5000);
+                    statusText.textContent = '✓ Success — downloading your PDF...';
+                    statusText.classList.add('success');
+
+                    try {
+                        const dlResponse = await fetch(`${API_BASE_URL}/api/download/${sessionId}`);
+                        if (!dlResponse.ok) throw new Error('Download failed');
+                        const blob = await dlResponse.blob();
+                        const downloadUrl = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = downloadUrl;
+                        a.download = 'studocu-document.pdf';
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(downloadUrl);
+                        statusText.textContent = '✓ Download complete';
+                    } catch (dlError) {
+                        showError('PDF was generated but download failed. Please try again.');
+                    }
+                    setTimeout(resetUI, 6000);
                 } else if (data.status === 'error') {
                     clearInterval(pollInterval);
-                    showError(`Error: ${data.message || 'An unknown error occurred.'}`);
+                    showError(data.message || 'An unknown error occurred.');
                     setLoading(false);
                 }
-
             } catch (error) {
                 clearInterval(pollInterval);
-                console.error('Polling failed:', error);
                 showError('Failed to connect to the server for progress updates.');
                 setLoading(false);
             }
@@ -65,9 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     downloadBtn.addEventListener('click', async () => {
         const url = urlInput.value.trim();
-        const studocuUrlPattern = /^https:\/\/www\.studocu\.com\/.+$/;
-
-        if (!url || !studocuUrlPattern.test(url)) {
+        if (!url || !/^https:\/\/www\.studocu\.com\/.+$/.test(url)) {
             showError('Please provide a valid StuDocu URL starting with https://www.studocu.com/');
             return;
         }
@@ -91,22 +113,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const { sessionId } = await response.json();
             pollProgress(sessionId);
-
         } catch (error) {
-            console.error('Download initiation failed:', error);
             showError(error.message);
             setLoading(false);
         }
     });
 
+    urlInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !downloadBtn.disabled) downloadBtn.click();
+    });
+
     function setLoading(isLoading) {
         downloadBtn.disabled = isLoading;
         urlInput.disabled = isLoading;
+        clearBtn.disabled = isLoading;
         downloadBtn.classList.toggle('loading', isLoading);
+        if (isLoading) clearBtn.classList.remove('visible');
     }
 
     function showError(message) {
-        errorIndicator.style.display = 'block';
+        errorIndicator.style.display = 'flex';
         errorIndicator.textContent = message;
         progressSection.style.display = 'none';
     }

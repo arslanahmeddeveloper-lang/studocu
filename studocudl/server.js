@@ -1,20 +1,62 @@
 const express = require('express');
-const puppeteerExtra = require('puppeteer-extra'); // NEW: For stealth
-const StealthPlugin = require('puppeteer-extra-plugin-stealth'); // NEW: Stealth plugin
+const path = require('path');
+const { connect } = require('puppeteer-real-browser');
 const cors = require('cors');
 const { EventEmitter } = require('events');
 
-puppeteerExtra.use(StealthPlugin()); // NEW: Enable stealth plugin
+// --- Stealth Plugin ---
+const puppeteerExtra = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const stealthPlugin = StealthPlugin();
+puppeteerExtra.use(stealthPlugin);
+console.log('🕵️ Stealth plugin loaded with evasion modules:', stealthPlugin.enabledEvasions);
 
 const app = express();
 const port = 7860;
 
-app.use(cors());
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['Content-Disposition']
+}));
+
+// Fallback CORS headers for all responses (including binary)
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.header('Access-Control-Expose-Headers', 'Content-Disposition');
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
+});
 app.use(express.json());
 
-// --- Progress Tracking and Job Storage --- (Unchanged)
+// Serve frontend static files
+const frontendPath = path.join(__dirname, '..', 'studocu');
+app.use('/studocu', express.static(frontendPath));
+
+// Serve index.html at root
+app.get('/', (req, res) => {
+    res.sendFile(path.join(frontendPath, 'index.html'));
+});
+
+// --- Progress Tracking and Job Storage ---
 const progressTrackers = new Map();
 const downloadJobs = new Map();
+
+// Auto-cleanup completed/errored jobs after 15 minutes to prevent memory leaks
+const JOB_TTL_MS = 15 * 60 * 1000;
+function scheduleJobCleanup(sessionId) {
+    setTimeout(() => {
+        if (downloadJobs.has(sessionId)) {
+            console.log(`🗑️ Cleaning up expired job: ${sessionId}`);
+            downloadJobs.delete(sessionId);
+        }
+    }, JOB_TTL_MS);
+}
 
 class ProgressTracker extends EventEmitter {
     constructor(sessionId) {
@@ -41,12 +83,11 @@ class ProgressTracker extends EventEmitter {
     }
 }
 
-// --- Puppeteer Logic (Updated for Stealth and Reliability) ---
+// --- Puppeteer Logic ---
 const bypassCookiesAndRestrictions = async (page, progressTracker) => {
     progressTracker?.updateProgress(5, 'bypassing', 'Setting up cookie bypass...');
 
     console.log("🍪 Starting comprehensive cookie and restriction bypass...");
-    // Step 1: Set cookies before page load
     const preCookies = [
         { name: 'cookieConsent', value: 'accepted', domain: '.studocu.com' },
         { name: 'cookie_consent', value: 'true', domain: '.studocu.com' },
@@ -65,65 +106,49 @@ const bypassCookiesAndRestrictions = async (page, progressTracker) => {
         }
     }
 
-    // Step 2: Inject CSS to hide cookie banners immediately (Unchanged)
     await page.addStyleTag({
         content: `
-            /* Hide all possible cookie banners */
             [id*="cookie" i]:not(img):not(input), [class*="cookie" i]:not(img):not(input), [data-testid*="cookie" i], [aria-label*="cookie" i],
             .gdpr-banner, .gdpr-popup, .gdpr-modal, .consent-banner, .consent-popup, .consent-modal, .privacy-banner, .privacy-popup, .privacy-modal,
             .cookie-law, .cookie-policy, .cookie-compliance, .onetrust-banner-sdk, #onetrust-consent-sdk, .cmp-banner, .cmp-popup, .cmp-modal,
-            [class*="CookieBanner"], [class*="CookieNotice"], [class*="ConsentBanner"], [class*="ConsentManager"], .cc-banner, .cc-window, .cc-compliance,
-            div[style*="position: fixed"]:has-text("cookie"), div[style*="position: fixed"]:has-text("consent"), .fixed:has-text("cookie"), .fixed:has-text("consent") {
+            [class*="CookieBanner"], [class*="CookieNotice"], [class*="ConsentBanner"], [class*="ConsentManager"], .cc-banner, .cc-window, .cc-compliance {
                 display: none !important;
                 visibility: hidden !important;
                 opacity: 0 !important;
                 z-index: -9999 !important;
                 pointer-events: none !important;
             }
-            /* Remove blur and premium overlays */
             [class*="blur" i], [class*="premium" i], [class*="paywall" i], [class*="sample-preview-blur" i] {
                 filter: none !important;
                 backdrop-filter: none !important;
                 opacity: 1 !important;
                 visibility: visible !important;
             }
-            /* Ensure document content is visible */
             .document-content, .page-content, [data-page] {
                 filter: none !important;
                 opacity: 1 !important;
                 visibility: visible !important;
                 pointer-events: auto !important;
             }
-            /* Remove fixed overlays */
-            .fixed-overlay, .sticky-overlay, .content-overlay {
-                display: none !important;
-            }
-            /* Restore scrolling */
-            html, body {
-                overflow: auto !important;
-                position: static !important;
-            }
+            .fixed-overlay, .sticky-overlay, .content-overlay { display: none !important; }
+            html, body { overflow: auto !important; position: static !important; }
         `
     });
 
-    // Step 3: Inject JavaScript to handle dynamic cookie banners (Unchanged)
     await page.evaluateOnNewDocument(() => {
-        // Override common cookie consent functions
         window.cookieConsent = { accepted: true };
         window.gtag = () => { };
         window.ga = () => { };
         window.dataLayer = [];
 
-        // Mutation observer to catch dynamically added cookie banners
         const observer = new MutationObserver((mutations) => {
             mutations.forEach((mutation) => {
                 mutation.addedNodes.forEach((node) => {
-                    if (node.nodeType === 1) { // Element node
+                    if (node.nodeType === 1) {
                         const element = node;
                         const text = element.textContent || '';
                         const className = element.className || '';
                         const id = element.id || '';
-                        // Check if this looks like a cookie banner
                         if (
                             text.toLowerCase().includes('cookie') ||
                             text.toLowerCase().includes('consent') ||
@@ -134,7 +159,6 @@ const bypassCookiesAndRestrictions = async (page, progressTracker) => {
                             id.toLowerCase().includes('cookie') ||
                             id.toLowerCase().includes('consent')
                         ) {
-                            console.log('Removing detected cookie banner:', element);
                             element.remove();
                         }
                     }
@@ -143,7 +167,6 @@ const bypassCookiesAndRestrictions = async (page, progressTracker) => {
         });
         observer.observe(document.body, { childList: true, subtree: true });
 
-        // Set up periodic cleanup
         setInterval(() => {
             const cookieElements = document.querySelectorAll(`
                 [id*="cookie" i]:not(img):not(input), [class*="cookie" i]:not(img):not(input), [data-testid*="cookie" i],
@@ -151,7 +174,6 @@ const bypassCookiesAndRestrictions = async (page, progressTracker) => {
                 .cmp-banner, .cc-banner
             `);
             cookieElements.forEach(el => el.remove());
-            // Restore body scroll
             document.body.style.overflow = 'auto';
             document.documentElement.style.overflow = 'auto';
         }, 1000);
@@ -184,9 +206,9 @@ const unblurContent = async (page, progressTracker) => {
                         (el.className && el.className.toString().toLowerCase().includes("blur")) ||
                         (el.className && el.className.toString().toLowerCase().includes("premium"))
                     ) {
-                        el.style.filter = "none !important";
-                        el.style.backdropFilter = "none !important";
-                        el.style.opacity = "1 !important";
+                        el.style.filter = "none";
+                        el.style.backdropFilter = "none";
+                        el.style.opacity = "1";
                         if (el.classList) {
                             el.classList.remove("blur", "blurred", "premium-blur");
                         }
@@ -213,8 +235,8 @@ const unblurContent = async (page, progressTracker) => {
         };
 
         removeRestrictions();
-        const intervalId = setInterval(removeRestrictions, 1000); // Reduced from 2000ms to 1000ms
-        setTimeout(() => clearInterval(intervalId), 30000); // Reduced from 60000ms to 30000ms
+        const intervalId = setInterval(removeRestrictions, 1000);
+        setTimeout(() => clearInterval(intervalId), 30000);
     });
 
     progressTracker?.updateProgress(20, 'unblurring', 'Content restrictions removed');
@@ -229,13 +251,11 @@ const applyPrintStyles = async (page, progressTracker) => {
         style.id = "print-style-extension";
         style.innerHTML = `
             @page {
-                /* Set page size to A4 and remove default margins */
                 size: A4 portrait;
-                margin: 0mm; 
+                margin: 0mm;
             }
             @media print {
                 html, body {
-                    /* Ensure the body takes the full width and has no extra padding/margin */
                     width: 210mm !important;
                     height: auto !important;
                     margin: 0 !important;
@@ -244,7 +264,6 @@ const applyPrintStyles = async (page, progressTracker) => {
                     background: white !important;
                     color: black !important;
                 }
-                /* Remove all unwanted elements like headers, footers, sidebars, etc. */
                 header, footer, nav, aside, .no-print, .ads, .sidebar, .premium-banner,
                 [class*="Header"], [class*="Footer"], [class*="Sidebar"], [id*="Header"],
                 .ViewerToolbar, .Layout_info-bar-wrapper__He0Ho, .Sidebar_sidebar-scrollable__kqeBZ,
@@ -254,18 +273,12 @@ const applyPrintStyles = async (page, progressTracker) => {
                 .Layout_sidebar-wrapper__unavM, .Layout_is-open__9DQr4 {
                     display: none !important;
                 }
-                /* Force all elements to have a transparent background and no shadow */
                 * {
                     box-shadow: none !important;
                     background: transparent !important;
                     color: inherit !important;
                 }
-                /*
-                 * KEY FIX: Target the main document container.
-                 * Force it to be a block element, remove any transforms or max-widths,
-                 * and center it perfectly within the page.
-                 */
-                .Viewer_document-wrapper__JPBWQ, .Viewer_document-wrapper__LXzoQ, 
+                .Viewer_document-wrapper__JPBWQ, .Viewer_document-wrapper__LXzoQ,
                 .Viewer_document-wrapper__XsO4j, .page-content, .document-viewer, #page-container {
                     position: static !important;
                     display: block !important;
@@ -273,10 +286,9 @@ const applyPrintStyles = async (page, progressTracker) => {
                     max-width: none !important;
                     margin: 0 !important;
                     padding: 0 !important;
-                    box-sizing: border-box; /* Include padding in width calculation */
+                    box-sizing: border-box;
                     transform: none !important;
                 }
-                /* Ensure individual pages and images within the document use the full width */
                 [data-page], .page, .document-page, img {
                     page-break-after: always !important;
                     page-break-inside: avoid !important;
@@ -290,10 +302,62 @@ const applyPrintStyles = async (page, progressTracker) => {
                 }
             }
         `;
-        document.head.appendChild(style);
+        (document.head || document.documentElement).appendChild(style);
     });
 
     progressTracker?.updateProgress(88, 'styling', 'Print styles applied successfully');
+};
+
+// FIX: Safe scroll function that runs in Node.js (not inside page.evaluate)
+// to avoid the protocolTimeout issue with long-running evaluate calls.
+const scrollPageFully = async (page, progressTracker) => {
+    console.log("📜 Loading all document pages with safe incremental scroll...");
+    progressTracker?.updateProgress(50, 'scrolling', 'Scrolling to load all pages...');
+
+    const SCROLL_DISTANCE = 600;        // px per scroll step
+    const STEP_DELAY_MS = 350;          // ms between each scroll step
+    const SETTLE_DELAY_MS = 2500;       // ms to wait after reaching bottom before re-checking
+    const MAX_SCROLL_ITERATIONS = 300;  // safety cap (~180s max scroll time)
+    const NO_CHANGE_THRESHOLD = 3;      // confirm page is done after 3 unchanged heights
+
+    let noChangeCount = 0;
+    let iteration = 0;
+    let lastScrollHeight = await page.evaluate(() => document.body.scrollHeight);
+
+    while (noChangeCount < NO_CHANGE_THRESHOLD && iteration < MAX_SCROLL_ITERATIONS) {
+        iteration++;
+
+        // Scroll down one step
+        await page.evaluate((dist) => window.scrollBy(0, dist), SCROLL_DISTANCE);
+        await new Promise(r => setTimeout(r, STEP_DELAY_MS));
+
+        const currentPosition = await page.evaluate(() => window.scrollY + window.innerHeight);
+        const scrollHeight = await page.evaluate(() => document.body.scrollHeight);
+
+        if (currentPosition >= scrollHeight) {
+            // We've reached the bottom — wait for lazy content to load
+            await new Promise(r => setTimeout(r, SETTLE_DELAY_MS));
+            const newScrollHeight = await page.evaluate(() => document.body.scrollHeight);
+
+            if (newScrollHeight === lastScrollHeight) {
+                noChangeCount++;
+                console.log(`📍 Bottom reached, no new content (${noChangeCount}/${NO_CHANGE_THRESHOLD})`);
+            } else {
+                noChangeCount = 0;
+                console.log(`📄 Page grew from ${lastScrollHeight} to ${newScrollHeight}px, continuing...`);
+                lastScrollHeight = newScrollHeight;
+            }
+        }
+    }
+
+    if (iteration >= MAX_SCROLL_ITERATIONS) {
+        console.warn(`⚠️ Scroll hit max iteration limit (${MAX_SCROLL_ITERATIONS}). Proceeding anyway.`);
+    }
+
+    // Scroll back to top
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await new Promise(r => setTimeout(r, 1000));
+    console.log(`✅ Scrolling complete after ${iteration} steps.`);
 };
 
 const studocuDownloader = async (url, options = {}, progressTracker = null) => {
@@ -301,96 +365,135 @@ const studocuDownloader = async (url, options = {}, progressTracker = null) => {
     try {
         progressTracker?.updateProgress(0, 'initializing', 'Starting browser...');
 
-        console.log("🚀 Launching browser with enhanced stealth configuration...");
-        browser = await puppeteerExtra.launch({ // UPDATED: Use puppeteerExtra
-            headless: true,
+        console.log("🚀 Launching browser with puppeteer-real-browser...");
+        const connection = await connect({
+            headless: false,
+            turnstile: true,
+            fingerprint: true,
+            disableXvfb: false,
+            // FIX: Increase protocol timeout to 3 minutes to handle slow page evaluations
+            protocolTimeout: 180000,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--no-first-run',
-                '--no-zygote',
                 '--disable-gpu',
-                '--disable-features=VizDisplayCompositor',
-                '--disable-background-networking',
+                '--disable-software-rasterizer',
                 '--disable-background-timer-throttling',
-                '--disable-renderer-backgrounding',
                 '--disable-backgrounding-occluded-windows',
-                '--disable-ipc-flooding-protection',
-                '--disable-web-security',
-                '--disable-features=site-per-process',
+                '--disable-renderer-backgrounding',
+                '--disable-features=IsolateOrigins,site-per-process',
+                '--window-size=1280,900',
+                '--window-position=0,0',
+                '--start-maximized',
                 '--disable-blink-features=AutomationControlled',
-                '--disable-extensions',
-                '--ignore-certificate-errors'
+                '--disable-extensions-except=',
+                '--disable-plugins-discovery',
+                '--no-first-run',
+                '--no-default-browser-check',
+                '--lang=en-US,en',
+                '--ignore-certificate-errors',
+                '--allow-running-insecure-content',
             ],
-            ignoreHTTPSErrors: true,
-            timeout: 300000,
+            customConfig: {},
         });
 
-        const page = await browser.newPage();
+        browser = connection.browser;
+        const page = connection.page;
 
-        progressTracker?.updateProgress(2, 'initializing', 'Configuring browser settings...');
+        progressTracker?.updateProgress(2, 'initializing', 'Browser ready, configuring...');
 
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36');
-        await page.setViewport({ width: 794, height: 1122 }); // A4 size in pixels at 96 DPI
-
-        // NOTE: Stealth plugin handles most of this, but keeping for extra safety
+        // Apply stealth evasions
+        console.log('🕵️ Applying stealth evasions to page...');
         await page.evaluateOnNewDocument(() => {
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-        });
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined,
+                configurable: true
+            });
 
-        // Set up cookie and content bypass
-        await bypassCookiesAndRestrictions(page, progressTracker);
-
-        // Block unnecessary resources (UPDATED: Block more aggressively, including scripts, fonts, and stylesheets if not critical)
-        await page.setRequestInterception(true);
-        page.on('request', (req) => {
-            const resourceType = req.resourceType();
-            const reqUrl = req.url().toLowerCase();
-
-            if (resourceType === 'document') {
-                req.continue();
-                return;
+            if (!window.chrome) {
+                window.chrome = {
+                    app: { isInstalled: false },
+                    runtime: {},
+                    csi: () => {},
+                    loadTimes: () => {},
+                };
             }
 
-            if (
-                ['image', 'media', 'font', 'stylesheet'].includes(resourceType) && // Block non-essential images/media/fonts/styles early if not core
-                !reqUrl.includes('document') && !reqUrl.includes('page') && !reqUrl.includes('studocu') || // Allow core document images
-                resourceType === 'script' && !reqUrl.includes('studocu') || // Block third-party scripts
-                reqUrl.includes('doubleclick') ||
-                reqUrl.includes('googletagmanager') ||
-                reqUrl.includes('facebook.com') ||
-                reqUrl.includes('twitter.com') ||
-                reqUrl.includes('analytics') ||
-                reqUrl.includes('gtm') ||
-                reqUrl.includes('hotjar') ||
-                reqUrl.includes('mixpanel') ||
-                reqUrl.includes('onetrust') ||
-                reqUrl.includes('cookielaw') ||
-                (resourceType === 'other' && reqUrl.includes('/track/'))
-            ) {
-                req.abort();
-            } else {
-                req.continue();
-            }
+            const makePluginArray = () => {
+                const plugins = [
+                    { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+                    { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+                    { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' },
+                ];
+                const pluginArray = Object.create(PluginArray.prototype);
+                plugins.forEach((p, i) => {
+                    const plugin = Object.create(Plugin.prototype);
+                    Object.defineProperty(plugin, 'name', { get: () => p.name });
+                    Object.defineProperty(plugin, 'filename', { get: () => p.filename });
+                    Object.defineProperty(plugin, 'description', { get: () => p.description });
+                    Object.defineProperty(plugin, 'length', { get: () => 0 });
+                    Object.defineProperty(pluginArray, i, { get: () => plugin });
+                    Object.defineProperty(pluginArray, p.name, { get: () => plugin });
+                });
+                Object.defineProperty(pluginArray, 'length', { get: () => plugins.length });
+                return pluginArray;
+            };
+            Object.defineProperty(navigator, 'plugins', { get: makePluginArray, configurable: true });
+
+            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'], configurable: true });
+            Object.defineProperty(navigator, 'language', { get: () => 'en-US', configurable: true });
+            Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8, configurable: true });
+            Object.defineProperty(navigator, 'deviceMemory', { get: () => 8, configurable: true });
+
+            // WebGL spoofing
+            try {
+                const canvas = document.createElement('canvas');
+                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                if (gl) {
+                    const getParameter = gl.getParameter.bind(gl);
+                    gl.getParameter = new Proxy(getParameter, {
+                        apply(target, ctx, args) {
+                            if (args[0] === 37445) return 'Intel Inc.';
+                            if (args[0] === 37446) return 'Intel Iris OpenGL Engine';
+                            return Reflect.apply(target, ctx, args);
+                        }
+                    });
+                }
+            } catch (e) { /* ignore */ }
+
+            if (window.outerWidth === 0) Object.defineProperty(window, 'outerWidth', { get: () => 1280, configurable: true });
+            if (window.outerHeight === 0) Object.defineProperty(window, 'outerHeight', { get: () => 900, configurable: true });
         });
+        console.log('✅ Stealth evasions applied successfully');
+
+        await page.setUserAgent(
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+        );
+        await page.setExtraHTTPHeaders({
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-User': '?1',
+            'Upgrade-Insecure-Requests': '1',
+        });
+
+        await page.setViewport({ width: 1280, height: 900 });
 
         // Login if credentials provided
         if (options.email && options.password) {
             progressTracker?.updateProgress(12, 'authenticating', 'Logging into StuDocu...');
-
             console.log("🔑 Logging in to StuDocu...");
-            await page.goto('https://www.studocu.com/en-us/login', { waitUntil: 'domcontentloaded', timeout: 60000 }); // Reduced timeout from 120000
-            await page.waitForSelector('#email', { timeout: 10000 }); // Reduced from 15000
+            await page.goto('https://www.studocu.com/en-us/login', { waitUntil: 'domcontentloaded', timeout: 60000 });
+            await page.waitForSelector('#email', { timeout: 10000 });
             await page.type('#email', options.email);
             await page.type('#password', options.password);
             await page.click('button[type="submit"]');
             try {
-                await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }); // Reduced from 30000
-                await page.waitForSelector('.user-profile, [data-testid="user-menu"]', { timeout: 5000 }); // Reduced from 10000
+                await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 });
+                await page.waitForSelector('.user-profile, [data-testid="user-menu"]', { timeout: 5000 });
                 console.log("✅ Login successful.");
                 progressTracker?.updateProgress(18, 'authenticated', 'Login successful');
             } catch (e) {
@@ -399,46 +502,79 @@ const studocuDownloader = async (url, options = {}, progressTracker = null) => {
             }
         }
 
-        // Removed homepage visit as it's not strictly necessary for session setup; directly navigate to URL
+        // Navigate to document URL (with retries)
         progressTracker?.updateProgress(30, 'navigating', 'Navigating to document...');
         console.log(`📄 Navigating to ${url}...`);
 
         let navigationSuccess = false;
         let attempts = 0;
-        const maxAttempts = 3; // Reduced from 5 to minimize retries
+        const maxAttempts = 3;
         while (!navigationSuccess && attempts < maxAttempts) {
             try {
                 attempts++;
                 progressTracker?.updateProgress(30 + (attempts * 5), 'navigating', `Navigation attempt ${attempts}/${maxAttempts}`);
                 console.log(`Navigation attempt ${attempts}/${maxAttempts}`);
-                await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 }); // Reduced timeout from 150000
+                await page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
                 navigationSuccess = true;
             } catch (e) {
                 console.log(`Navigation attempt ${attempts} failed:`, e.message);
                 if (attempts >= maxAttempts) throw e;
-                await new Promise(resolve => setTimeout(resolve, 5000)); // Reduced retry delay from 15000 to 5000ms
+                await new Promise(resolve => setTimeout(resolve, 5000));
             }
         }
 
-        progressTracker?.updateProgress(40, 'loading', 'Page loaded, waiting for content...');
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Reduced from 5000ms
+        progressTracker?.updateProgress(40, 'loading', 'Page loaded, checking for Cloudflare challenge...');
 
-        // Apply content unblurring
-        // await unblurContent(page, progressTracker);
+        // Wait for Cloudflare Turnstile to resolve
+        console.log('🛡️ Checking for Cloudflare challenge...');
+        const maxCfWait = 90000;
+        const cfStart = Date.now();
+        let cfBypassed = false;
+        while (Date.now() - cfStart < maxCfWait) {
+            const pageTitle = await page.title();
+            console.log(`  🔍 Page title: "${pageTitle}"`);
+
+            if (!pageTitle.includes('Just a moment') && !pageTitle.includes('Attention Required') && !pageTitle.includes('Checking')) {
+                console.log('✅ Cloudflare challenge bypassed!');
+                cfBypassed = true;
+                break;
+            }
+
+            progressTracker?.updateProgress(42, 'loading', 'Waiting for security check to complete...');
+            await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+
+        if (!cfBypassed) {
+            throw new Error('Cloudflare security challenge could not be bypassed. Try again later or use a different IP.');
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 5000));
 
         // Wait for document content
         progressTracker?.updateProgress(45, 'loading', 'Waiting for document content...');
         console.log("⏳ Waiting for document content to load...");
 
         const contentSelectors = [
-            '.document-content', '.page-content', '[data-page]', '[data-testid*="document"]',
-            'img[src*="document"]', 'img[src*="page"]', '.page', 'main img', 'article img'
+            'img[src*="d-cdn.net"]',
+            'img[src*="studocu"]',
+            'img[data-src]',
+            '[class*="DocumentViewer"]',
+            '[class*="PageViewer"]',
+            '[class*="Viewer_document"]',
+            '[class*="viewer"] img',
+            '[data-page]',
+            'main img',
+            'img[alt*="Page"]',
+            'img[loading="lazy"]',
+            '.page-content',
+            '.document-content',
         ];
         let contentFound = false;
         for (const selector of contentSelectors) {
             try {
-                await page.waitForSelector(selector, { timeout: 10000 }); // Reduced from 20000
-                console.log(`✅ Found content with selector: ${selector}`);
+                await page.waitForSelector(selector, { timeout: 8000 });
+                const count = await page.$$eval(selector, els => els.length);
+                console.log(`✅ Found ${count} elements with selector: ${selector}`);
                 contentFound = true;
                 break;
             } catch (e) {
@@ -448,69 +584,66 @@ const studocuDownloader = async (url, options = {}, progressTracker = null) => {
 
         if (!contentFound) {
             console.log("⚠️ No specific content selector found, proceeding with page content...");
+            const debugInfo = await page.evaluate(() => {
+                const imgs = document.querySelectorAll('img');
+                return {
+                    imageCount: imgs.length,
+                    imageSrcs: Array.from(imgs).slice(0, 10).map(i => i.src?.substring(0, 100)),
+                    bodyClasses: document.body.className,
+                    title: document.title,
+                    url: window.location.href
+                };
+            });
+            console.log('🔍 Page debug info:', JSON.stringify(debugInfo, null, 2));
         }
 
-        // Enhanced scrolling to load all content (Optimized: Increased scroll distance, reduced delays)
-        progressTracker?.updateProgress(50, 'scrolling', 'Loading all document pages...');
-        console.log("📜 Loading all document pages with enhanced slow scroll...");
-
-        await page.evaluate(async () => {
-            const delay = (ms) => new Promise((res) => setTimeout(res, ms));
-            let scrollHeight = document.body.scrollHeight;
-            while (true) {
-                let totalHeight = 0;
-                const distance = 600; // Increased from 300 for faster coverage
-                while (totalHeight < scrollHeight) {
-                    window.scrollBy(0, distance);
-                    totalHeight += distance;
-                    await delay(200); // Reduced from 500ms
-                }
-                await delay(1000); // Reduced from 2000ms
-                const newHeight = document.body.scrollHeight;
-                if (newHeight === scrollHeight) break;
-                scrollHeight = newHeight;
-            }
-            window.scrollTo({ top: 0, behavior: "smooth" });
-            await delay(500); // Reduced from 1000ms
-        });
+        // FIX: Use safe Node.js-side scroll instead of a long-running page.evaluate
+        await scrollPageFully(page, progressTracker);
 
         progressTracker?.updateProgress(70, 'processing', 'Processing loaded content...');
 
-        // Re-apply unblur after loading new content
+        // Re-apply unblur after scrolling
         await unblurContent(page, progressTracker);
 
-        // Wait for all images to load (Optimized: Reduced per-image timeout, parallel wait)
+        // Force-load lazy images
         progressTracker?.updateProgress(75, 'loading_images', 'Loading images...');
         console.log("🖼️ Waiting for all images to load...");
 
-        await page.evaluate(async () => {
+        await page.evaluate(() => {
+            document.querySelectorAll('img[data-src]').forEach(img => {
+                if (!img.src || img.src === '') img.src = img.dataset.src;
+            });
+        });
+
+        // Wait for images with a short per-image timeout (non-blocking)
+        await page.evaluate(() => {
             const images = Array.from(document.querySelectorAll('img'));
-            await Promise.all(images.map(img => {
-                if (img.complete) return Promise.resolve();
+            return Promise.all(images.map(img => {
+                if (img.complete && img.naturalWidth > 0) return Promise.resolve();
                 return new Promise((resolve) => {
-                    img.addEventListener('load', resolve);
-                    img.addEventListener('error', resolve);
-                    setTimeout(resolve, 5000); // Reduced from 15000ms
+                    img.addEventListener('load', resolve, { once: true });
+                    img.addEventListener('error', resolve, { once: true });
+                    setTimeout(resolve, 8000);
                 });
             }));
         });
 
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Reduced from 5000ms
+        await new Promise(resolve => setTimeout(resolve, 3000));
         progressTracker?.updateProgress(80, 'finalizing', 'Preparing document for PDF generation...');
 
-        // Set exact height
+        // Set exact document height
         await page.evaluate(() => {
-            const getDocumentHeight = () => Math.max(
+            const height = Math.max(
                 document.body.scrollHeight, document.body.offsetHeight,
-                document.documentElement.clientHeight, document.documentElement.scrollHeight, document.documentElement.offsetHeight
+                document.documentElement.clientHeight, document.documentElement.scrollHeight,
+                document.documentElement.offsetHeight
             );
-            const height = getDocumentHeight();
-            document.body.style.height = `${height}px !important`;
-            document.documentElement.style.height = `${height}px !important`;
-            document.body.style.overflow = 'hidden !important';
+            document.body.style.height = `${height}px`;
+            document.documentElement.style.height = `${height}px`;
+            document.body.style.overflow = 'hidden';
         });
 
-        // Content verification (Unchanged, as it's quick)
+        // Content verification
         const contentCheck = await page.evaluate(() => {
             const textContent = document.body.textContent || '';
             const images = document.querySelectorAll('img');
@@ -537,7 +670,10 @@ const studocuDownloader = async (url, options = {}, progressTracker = null) => {
             console.warn("⚠️ Warning: Limited document content detected.");
         }
 
-        // Apply print styles and generate PDF
+        // Resize viewport to A4 for PDF generation
+        await page.setViewport({ width: 794, height: 1122 });
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
         await applyPrintStyles(page, progressTracker);
         await page.emulateMediaType('print');
 
@@ -545,12 +681,14 @@ const studocuDownloader = async (url, options = {}, progressTracker = null) => {
         console.log("🔄 Generating PDF...");
 
         const pdfBuffer = await page.pdf({
+            format: 'A4',
             printBackground: true,
-            preferCSSPageSize: true, // Use the @page size
+            preferCSSPageSize: false,
             displayHeaderFooter: false,
-            timeout: 60000, // Reduced from 180000
-            scale: 1,
-            omitBackground: false
+            timeout: 120000,
+            scale: 0.8,
+            omitBackground: false,
+            margin: { top: '10mm', bottom: '10mm', left: '5mm', right: '5mm' }
         });
 
         progressTracker?.updateProgress(100, 'completed', 'PDF generated successfully!');
@@ -573,7 +711,7 @@ const studocuDownloader = async (url, options = {}, progressTracker = null) => {
     }
 };
 
-// --- API Routes --- (Unchanged)
+// --- API Routes ---
 app.post('/api/request-download', (req, res) => {
     const { url, email, password } = req.body;
     if (!url || !url.includes('studocu.com')) {
@@ -588,20 +726,18 @@ app.post('/api/request-download', (req, res) => {
 
     console.log(`🎯 Processing request for: ${url} [Session: ${sessionId}]`);
 
-    // Respond to the client immediately with the session ID
     res.json({ sessionId });
 
-    // --- Start the PDF generation in the background ---
     studocuDownloader(url, { email, password }, progressTracker)
         .then(pdfBuffer => {
-            // Store the successful result
             downloadJobs.set(sessionId, { status: 'completed', buffer: pdfBuffer });
-            progressTrackers.delete(sessionId); // Clean up live tracker
+            progressTrackers.delete(sessionId);
+            scheduleJobCleanup(sessionId); // FIX: auto-cleanup after TTL
         })
         .catch(error => {
-            // Store the error
             downloadJobs.set(sessionId, { status: 'error', message: error.message });
-            progressTrackers.delete(sessionId); // Clean up live tracker
+            progressTrackers.delete(sessionId);
+            scheduleJobCleanup(sessionId); // FIX: auto-cleanup after TTL
         });
 });
 
@@ -610,7 +746,6 @@ app.get('/api/progress/:sessionId', (req, res) => {
     const tracker = progressTrackers.get(sessionId);
 
     if (tracker) {
-        // Job is in progress, return live data
         return res.json({
             sessionId,
             progress: tracker.progress,
@@ -622,13 +757,14 @@ app.get('/api/progress/:sessionId', (req, res) => {
 
     const job = downloadJobs.get(sessionId);
     if (job) {
-        // Job is finished, return final state
         if (job.status === 'completed') {
             return res.json({ sessionId, progress: 100, status: 'completed', message: 'PDF generated successfully!' });
         }
         if (job.status === 'error') {
             return res.json({ sessionId, progress: -1, status: 'error', message: job.message });
         }
+        // Still processing (tracker was just deleted mid-flight)
+        return res.json({ sessionId, progress: 0, status: 'processing', message: 'Processing...' });
     }
 
     return res.status(404).json({ error: 'Session not found' });
@@ -651,44 +787,24 @@ app.get('/api/download/:sessionId', (req, res) => {
     }
 
     if (job.status === 'completed' && job.buffer) {
+        res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', 'attachment; filename=studocu-document.pdf');
+        res.setHeader('Content-Length', job.buffer.length);
         res.send(job.buffer);
-        // Optional: Clean up the job after download to save memory
-        // downloadJobs.delete(sessionId);
     } else {
         res.status(500).json({ error: 'An unknown error occurred.' });
     }
 });
 
-// --- Health and Info Endpoints (Unchanged) ---
+// Health endpoint
 app.get('/health', (req, res) => {
     res.json({
         status: 'healthy',
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
-        activeDownloads: progressTrackers.size
-    });
-});
-
-app.get('/', (req, res) => {
-    res.json({
-        message: '🚀 Enhanced StuDocu Downloader API v5.2 - Real-time Progress Tracking with Stealth',
-        version: '5.2.0',
-        features: [
-            '🍪 Advanced cookie banner bypass',
-            '🔓 Premium content unblurring',
-            '🔑 Login support for full access',
-            '📊 Real-time progress tracking via polling',
-            '📄 Clean PDF generation with print styles',
-            '🕵️ Enhanced stealth to evade bot detection'
-        ],
-        endpoints: {
-            request: 'POST /api/request-download (body: {url, filename?, email?, password?})',
-            progress: 'GET /api/progress/:sessionId',
-            download: 'GET /api/download/:sessionId',
-            health: 'GET /health'
-        }
+        activeDownloads: progressTrackers.size,
+        storedJobs: downloadJobs.size
     });
 });
 
@@ -703,6 +819,6 @@ process.on('SIGINT', () => {
 });
 
 app.listen(port, () => {
-    console.log(`🚀 Enhanced StuDocu Downloader v5.2.0 running on http://localhost:${port}`);
-    console.log(`✨ Features: Real-time progress tracking, enhanced stealth, and user feedback`);
+    console.log(`🚀 Enhanced StuDocu Downloader v5.3.0 running on http://localhost:${port}`);
+    console.log(`✨ Features: Real-time progress tracking, enhanced stealth, safe scroll, auto job cleanup`);
 });
